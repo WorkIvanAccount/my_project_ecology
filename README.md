@@ -15,3 +15,5 @@ source venv/bin/activate
 docker-compose up -d
 ```
 
+### Были проблемы из-за прав доступа аирфлоу, создал .env и написал
+```AIRFLOW_UID=50000```
