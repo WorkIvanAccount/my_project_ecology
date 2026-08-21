@@ -6,3 +6,7 @@ my_project_ecology
 python3 -m venv venv
 source venv/bin/activate
 ```
+## Создаем конфиг докер-композ
+Добавил шаблон-код с сайта аирфлоу, вписал свои нужные сервисы (postgreSQL DWH, minio S3, metabase BI).
+Создал диро metabase и сделал докерфайл для будущего использования DuckDB.
+
