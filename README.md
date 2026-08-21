@@ -2,5 +2,7 @@
 my_project_ecology
 
 ## Создать и активировать питон окружение
-`python3 -m venv venv`
-`source venv/bin/activate`
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
