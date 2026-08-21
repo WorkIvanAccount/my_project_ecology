@@ -17,3 +17,6 @@ docker-compose up -d
 
 ### Были проблемы из-за прав доступа аирфлоу, создал .env и написал
 ```AIRFLOW_UID=50000```
+
+### Для того чтобы создать файл в папке даг, пришлось изменять пермишон
+```sudo chown -R $USER:$USER /home/ivanskitev/CatProject/Project/my_project_ecology/dags```
