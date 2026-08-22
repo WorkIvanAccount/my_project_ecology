@@ -99,8 +99,6 @@ services:
       - "5432:5432"  # Внешний порт 5432, внутренний стандартный 5432
     volumes:
       - pg_dwh_data:/var/lib/postgresql/data
-    networks:
-      - eco-network
 
   # Объектное хранилище (S3) для сырых данных
   minio:
@@ -116,8 +114,6 @@ services:
       - "9001:9001"  # Web Console
     volumes:
       - minio_data:/data
-    networks:
-      - eco-network
 
   # BI-система для визуализации
   metabase:
@@ -135,8 +131,6 @@ services:
       MB_DB_PASS: postgres
     depends_on:
       - postgres_dwh
-    networks:
-      - eco-network
 
   postgres:
     image: postgres:13
@@ -183,6 +177,10 @@ services:
       <<: *airflow-common-depends-on
       airflow-init:
         condition: service_completed_successfully
+    environment:
+      <<: *airflow-common-env          # подтягивает SQL_ALCHEMY_CONN и всё остальное
+      AIRFLOW_UID: 50000
+      _PIP_ADDITIONAL_REQUIREMENTS: duckdb pendulum 
 
   airflow-scheduler:
     <<: *airflow-common
@@ -198,6 +196,10 @@ services:
       <<: *airflow-common-depends-on
       airflow-init:
         condition: service_completed_successfully
+    environment:
+      <<: *airflow-common-env          # подтягивает SQL_ALCHEMY_CONN и всё остальное
+      AIRFLOW_UID: 50000
+      _PIP_ADDITIONAL_REQUIREMENTS: duckdb pendulum 
 
   airflow-worker:
     <<: *airflow-common
@@ -211,16 +213,18 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
-    environment:
-      <<: *airflow-common-env
-      # Required to handle warm shutdown of the celery workers properly
-      # See https://airflow.apache.org/docs/docker-stack/entrypoint.html#signal-propagation
-      DUMB_INIT_SETSID: "0"
     restart: always
     depends_on:
       <<: *airflow-common-depends-on
       airflow-init:
         condition: service_completed_successfully
+    environment:
+      # Required to handle warm shutdown of the celery workers properly
+      # See https://airflow.apache.org/docs/docker-stack/entrypoint.html#signal-propagation
+      DUMB_INIT_SETSID: "0"
+      <<: *airflow-common-env          # подтягивает SQL_ALCHEMY_CONN и всё остальное
+      AIRFLOW_UID: 50000
+      _PIP_ADDITIONAL_REQUIREMENTS: duckdb pendulum 
 
   airflow-triggerer:
     <<: *airflow-common
@@ -236,6 +240,10 @@ services:
       <<: *airflow-common-depends-on
       airflow-init:
         condition: service_completed_successfully
+    environment:
+      <<: *airflow-common-env          # подтягивает SQL_ALCHEMY_CONN и всё остальное
+      AIRFLOW_UID: 50000
+      _PIP_ADDITIONAL_REQUIREMENTS: duckdb pendulum 
 
   airflow-init:
     <<: *airflow-common
@@ -337,7 +345,8 @@ services:
         condition: service_completed_successfully
 
 networks:
-  eco-network:
+  default:
+    name: eco-network   # <-- Все сервисы автоматически попадут сюда
     driver: bridge
 
 volumes:
