@@ -1,0 +1,6 @@
+{
+    "_comment": "ЭТОГО ФАЙЛА НЕ ДОЛЖНО БЫТЬ В ПРОДАКШНЕ. Путь для Pylance/VS Code, чтобы работал автокомплит и переход по коду для локальных Airflow плагинов. На работу Airflow в проде не влияет.",
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/plugins"
+    ]
+}

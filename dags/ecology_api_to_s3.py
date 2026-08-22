@@ -6,6 +6,8 @@ from airflow.models import Variable
 from airflow.operators.empty import EmptyOperator
 from airflow.operators.python import PythonOperator
 
+from utils.dates import get_data_interval_dates
+
 # --- Конфигурация ---
 OWNER = "i.skitev"
 DAG_ID = "ecology_raw_api_to_s3"
@@ -34,16 +36,10 @@ args = {
     "retry_delay": pendulum.duration(minutes=5),
 }
 
-def get_dates(**context) -> tuple[str, str]:
-    """Получаем даты интервала выполнения."""
-    start_date = context["data_interval_start"].format("YYYY-MM-DD")
-    end_date = context["data_interval_end"].format("YYYY-MM-DD")
-    return start_date, end_date
-
 def load_ecology_data_to_s3(**context):
     """Основная задача: запрос к API и сохранение в S3 через DuckDB."""
     
-    start_date, end_date = get_dates(**context)
+    start_date, end_date = get_data_interval_dates(**context)
     logging.info(f"🚀 Start loading data for period: {start_date} to {end_date}")
     
     con = duckdb.connect()

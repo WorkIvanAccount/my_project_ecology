@@ -56,10 +56,28 @@ DuckDB + httpfs качает JSON из Open-Meteo API (качество возд
 Запуск кнопкой Trigger (▶) в UI. Статусы и логи: Grid -> клик по задаче -> Log.
 Первый прогон завершился SUCCESS, файл появился в Minio (Object Browser -> prod).
 
-## Следующие шаги
-1. Второй DAG: читаем parquet из S3 -> трансформация -> загрузка в postgres_dwh (слой ods/dds).
-2. Подключить Metabase к postgres_dwh и собрать дашборд.
-3. Включить расписание DAG (тумблер Unpause), чтобы данные копились автоматически.
+### Вынес общий код в плагины (DRY)
+Функция получения дат дублировалась. Вынес в `plugins/utils/dates.py`.
+Чтобы Airflow в докере видел плагины, добавил в `docker-compose.yml`:
+```yaml
+    environment:
+      PYTHONPATH: /opt/airflow/plugins
+```
+Чтобы VS Code не подчеркивал импорты красным, создал `.vscode/settings.json`:
+```json
+{
+    "python.analysis.extraPaths": ["./plugins"]
+}
+```
 
-## Передает права на папку dags и все её файлы текущему пользователю ($USER)
-```sudo chown -R $USER:$USER /home/ivanskitev/CatProject/Project/my_project_ecology/dags```
+### Начал второй DAG (ecology_raw_s3_to_pg.py)
+Создан каркас: импорты, константы (`LAYER`, `SCHEMA`, `TARGET_TABLE`), `default_args`.
+Тело с SQL и сенсорами будет дописано завтра.
+
+### ⚠️ Проблема с данными (TODO на завтра)
+Посмотрел выгрузку из Minio (`data.csv`). Первый DAG сохраняет JSON от API как есть. 
+В колонке `hourly` лежит каша из массивов:
+```csv
+"hourly","[[""2026-08-20T00:00"", ...], {""0"":30, ""1"":31, ...}, ...]"
+```
+Из-за этого в Parquet нет нормальных колонок `time`, `pm10`, `pm2_5`. Второй DAG не сможет это прочитать.
