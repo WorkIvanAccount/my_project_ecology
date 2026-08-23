@@ -61,7 +61,12 @@ def load_ecology_data_to_s3(**context):
         query = f"""
         COPY
         (
-            SELECT * FROM read_json_auto('{api_url}')
+            SELECT
+                unnest(hourly.time)             AS time,
+                unnest(hourly.pm10)             AS pm10,
+                unnest(hourly.pm2_5)            AS pm2_5,
+                unnest(hourly.nitrogen_dioxide) AS nitrogen_dioxide
+            FROM read_json_auto('{api_url}')
         ) 
         TO 's3://prod/{LAYER}/{SOURCE}/{start_date}/data.parquet' 
         (FORMAT PARQUET, COMPRESSION GZIP);
