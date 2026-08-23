@@ -179,7 +179,6 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *airflow-common-env          # подтягивает SQL_ALCHEMY_CONN и всё остальное
-      AIRFLOW_UID: 50000
       _PIP_ADDITIONAL_REQUIREMENTS: duckdb pendulum 
 
   airflow-scheduler:
@@ -198,7 +197,6 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *airflow-common-env          # подтягивает SQL_ALCHEMY_CONN и всё остальное
-      AIRFLOW_UID: 50000
       _PIP_ADDITIONAL_REQUIREMENTS: duckdb pendulum 
 
   airflow-worker:
@@ -223,7 +221,6 @@ services:
       # See https://airflow.apache.org/docs/docker-stack/entrypoint.html#signal-propagation
       DUMB_INIT_SETSID: "0"
       <<: *airflow-common-env          # подтягивает SQL_ALCHEMY_CONN и всё остальное
-      AIRFLOW_UID: 50000
       _PIP_ADDITIONAL_REQUIREMENTS: duckdb pendulum 
 
   airflow-triggerer:
@@ -242,7 +239,6 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *airflow-common-env          # подтягивает SQL_ALCHEMY_CONN и всё остальное
-      AIRFLOW_UID: 50000
       _PIP_ADDITIONAL_REQUIREMENTS: duckdb pendulum 
 
   airflow-init:
