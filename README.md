@@ -115,3 +115,37 @@ sensor_on_raw_layer = ExternalTaskSensor(
 SELECT * FROM ods.fct_air_quality ORDER BY time;
 ```
 
+### Создаем витрину
+```sql
+CREATE SCHEMA IF NOT EXISTS stg;
+CREATE SCHEMA IF NOT EXISTS dm;
+
+CREATE TABLE IF NOT EXISTS dm.air_quality_daily (
+    date DATE PRIMARY KEY,
+    avg_pm10 DOUBLE PRECISION,
+    max_pm10 DOUBLE PRECISION,
+    avg_pm2_5 DOUBLE PRECISION,
+    max_pm2_5 DOUBLE PRECISION,
+    avg_no2 DOUBLE PRECISION,
+    max_no2 DOUBLE PRECISION
+);
+```
+
+
+### Слои и схемы в DWH
+- **raw** — не в PG, а в S3: сырые parquet, golden copy.
+- **ods** — оперативный слой: raw с приведёнными типами (1 строка = 1 час). `ods.fct_air_quality`.
+- **stg** — временные таблицы `tmp_<витрина>_<дата>` для расчёта витрин; при ошибке витрина не тронута.
+- **dm** — витрины: дневные агрегаты для BI (1 строка = 1 день). `dm.air_quality_daily`.
+- **public** — дефолтная схема PG, не используется. Сюда попали метаданные Metabase — вынесены в отдельную БД `metabase` (`CREATE DATABASE` + `MB_DB_DBNAME: metabase`).
+
+### Витрина (третий DAG dm_air_quality_daily)
+- Без Python/DuckDB: только `SQLExecuteQueryOperator`, SQL летит прямо в Postgres.
+- Подключение через Connection `postgres_dwh` (Admin -> Connections), а не Variables.
+- Паттерн STG (идемпотентность): drop tmp → создать tmp с агрегатами → delete день из витрины → insert из tmp → drop tmp.
+- Даты через Jinja: `{{ data_interval_start.format('YYYY-MM-DD') }}` (в f-строке — четыре скобки `{{{{ }}}}`).
+- Сенсор ждёт `ecology_raw_s3_to_pg`: данные должны быть уже в PG, а не только в S3.
+- Таблицу витрины создал руками — DDL отдельно от DML.
+
+### Дебаг: relation "ods.fct_air_quality" does not exist
+Connection смотрел не в ту базу. На одном Postgres-сервере несколько баз, схемы живут внутри конкретной базы. Лечится проверкой поля Database в Connection и `SELECT current_database();`.
