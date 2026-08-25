@@ -4,16 +4,14 @@ from airflow.operators.empty import EmptyOperator
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 from airflow.sensors.external_task import ExternalTaskSensor
 
-# Конфигурация DAG
-OWNER = "i.skitev"
+from utils.dag_config import make_args
+
 DAG_ID = "dm_air_quality_daily"
 
-# Используемые таблицы в DAG
 SCHEMA = "dm"
 TARGET_TABLE = "air_quality_daily"
 ODS_TABLE = "ods.fct_air_quality"
 
-# DWH Connection (создается в Airflow UI -> Admin -> Connections)
 PG_CONNECT = "postgres_dwh"
 
 LONG_DESCRIPTION = """
@@ -23,13 +21,7 @@ LONG_DESCRIPTION = """
 """
 SHORT_DESCRIPTION = "DM: Daily Air Quality Aggregates"
 
-args = {
-    "owner": OWNER,
-    "start_date": pendulum.datetime(2026, 8, 22, tz="Europe/Moscow"),
-    "catchup": True,
-    "retries": 2,
-    "retry_delay": pendulum.duration(minutes=5),
-}
+args = make_args(pendulum.datetime(2026, 8, 15, tz="Europe/Moscow"))
 
 with DAG(
     dag_id=DAG_ID,
@@ -45,17 +37,15 @@ with DAG(
 
     start = EmptyOperator(task_id="start")
 
-    # Ждем, пока второй даг успешно перельет данные в ODS (Postgres)
     sensor_on_ods_layer = ExternalTaskSensor(
         task_id="sensor_on_ods_layer",
-        external_dag_id="ecology_raw_s3_to_pg", # <-- Имя второго дага!
+        external_dag_id="ecology_raw_s3_to_pg",
         allowed_states=["success"],
         mode="reschedule",
         timeout=86400,
         poke_interval=60,
     )
 
-    # 1. Удаляем временную таблицу, если она вдруг осталась с прошлого неудачного запуска
     drop_stg_table_before = SQLExecuteQueryOperator(
         task_id="drop_stg_table_before",
         conn_id=PG_CONNECT,
@@ -65,7 +55,6 @@ with DAG(
         """,
     )
 
-    # 2. Создаем временную таблицу и считаем агрегаты за конкретный день
     create_stg_table = SQLExecuteQueryOperator(
         task_id="create_stg_table",
         conn_id=PG_CONNECT,
@@ -88,7 +77,6 @@ with DAG(
         """,
     )
 
-    # 3. Удаляем старые данные за этот день из финальной витрины (Идемпотентность)
     delete_from_target_table = SQLExecuteQueryOperator(
         task_id="delete_from_target_table",
         conn_id=PG_CONNECT,
@@ -101,7 +89,6 @@ with DAG(
         """,
     )
 
-    # 4. Вставляем посчитанные данные в финальную витрину
     insert_into_target_table = SQLExecuteQueryOperator(
         task_id="insert_into_target_table",
         conn_id=PG_CONNECT,
@@ -112,7 +99,6 @@ with DAG(
         """,
     )
 
-    # 5. Убираем за собой временную таблицу
     drop_stg_table_after = SQLExecuteQueryOperator(
         task_id="drop_stg_table_after",
         conn_id=PG_CONNECT,
@@ -125,12 +111,12 @@ with DAG(
     end = EmptyOperator(task_id="end")
 
     (
-        start 
-        >> sensor_on_ods_layer 
-        >> drop_stg_table_before 
-        >> create_stg_table 
-        >> delete_from_target_table 
-        >> insert_into_target_table 
-        >> drop_stg_table_after 
+        start
+        >> sensor_on_ods_layer
+        >> drop_stg_table_before
+        >> create_stg_table
+        >> delete_from_target_table
+        >> insert_into_target_table
+        >> drop_stg_table_after
         >> end
     )
