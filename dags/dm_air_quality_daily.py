@@ -26,7 +26,7 @@ SHORT_DESCRIPTION = "DM: Daily Air Quality Aggregates"
 args = {
     "owner": OWNER,
     "start_date": pendulum.datetime(2026, 8, 22, tz="Europe/Moscow"),
-    "catchup": False,
+    "catchup": True,
     "retries": 2,
     "retry_delay": pendulum.duration(minutes=5),
 }

@@ -31,7 +31,7 @@ SHORT_DESCRIPTION = "ETL: Raw Ecology API -> Minio S3"
 args = {
     "owner": OWNER,
     "start_date": pendulum.datetime(2026, 8, 22, tz="Europe/Moscow"),
-    "catchup": False, # Для тестов лучше False, чтобы не гнать историю
+    "catchup": True, # Для тестов лучше False, чтобы не гнать историю
     "retries": 2,
     "retry_delay": pendulum.duration(minutes=5),
 }
