@@ -149,3 +149,28 @@ CREATE TABLE IF NOT EXISTS dm.air_quality_daily (
 
 ### Дебаг: relation "ods.fct_air_quality" does not exist
 Connection смотрел не в ту базу. На одном Postgres-сервере несколько баз, схемы живут внутри конкретной базы. Лечится проверкой поля Database в Connection и `SELECT current_database();`.
+
+### Вынес общие default_args и креды в один файл (DRY, вторая волна)
+`start_date`/`owner`/`retries` и ключи Minio/Postgres дублировались уже в трёх DAG'ах. 
+Вынес в `plugins/utils/dag_config.py`:
+```python
+BASE_ARGS = {"owner": OWNER, "catchup": True, "retries": 2, "retry_delay": ...}
+
+def make_args(start_date, **overrides):
+    return {**BASE_ARGS, "start_date": start_date, **overrides}
+```
+Каждый DAG теперь передаёт только свою `start_date`, остальное — из общего конфига.
+`MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `PG_PASSWORD` тоже туда переехали.
+
+### Баг: за число N в БД прилетают данные N-1 (открыт, не закрыт)
+Гипотеза 1 (API отдаёт `hourly.time` в UTC вместо МСК) — добавил `&timezone=Europe%2FMoscow` 
+в `api_url`, проблему не решило.
+Пробовал лечить сдвигом `start_date` DAG'а в `dag_config` (16→15, 22→15) — это НЕ фикс: 
+`args["start_date"]` влияет только на нижнюю границу catchup, а не на дату, с которой 
+реально формируется `api_url` внутри таска (та берётся из `get_data_interval_dates(**context)` 
+на каждый ран отдельно).
+Рабочая гипотеза 2: смещение может быть на уровне семантики Airflow 
+(`data_interval_start` для `@daily` рана, выполненного физически в день X, 
+логически равен X-1) — ещё не подтверждено, нужно свериться с `utils/dates.py`.
+
+### Построен дашбоард в метабейз
