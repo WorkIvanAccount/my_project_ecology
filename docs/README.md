@@ -147,7 +147,7 @@ dm.air_quality_daily
 
 Он используется для анализа динамики показателей качества воздуха.
 
-![Metabase Dashboard](screenshots/metabase_dashboard.png)
+![Metabase Dashboard](../screenshots/metabase_dashboard.png)
 
 ---
 
