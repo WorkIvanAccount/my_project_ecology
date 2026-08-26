@@ -1,0 +1,330 @@
+apitos3
+import logging
+import duckdb
+import pendulum
+from airflow import DAG
+from airflow.operators.empty import EmptyOperator
+from airflow.operators.python import PythonOperator
+
+from utils.dates import get_data_interval_dates
+from utils.dag_config import make_args, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_ENDPOINT, RAW_LAYER
+
+DAG_ID = "ecology_raw_api_to_s3"
+LAYER = RAW_LAYER
+SOURCE = "air_quality"
+# ТРЕТИЙ АРГУМЕНТ ДЕНЬ - АПИ ДАЕТ ЗАДНИМ ЧИСЛОМ, ЕСЛИ НАПИСАЛ 15, ТО АПИ ВЕРНЕТ ДАННЫЕ ЗА 14
+# Исправить можно в dag_config.py, но пока оставим так, чтобы не ломать текущие DAG'и (впадлу, но возможное решение предлагаю в будущем)
+args = make_args(pendulum.datetime(2026, 8, 15, tz="Europe/Moscow"))
+
+LONG_DESCRIPTION = """..."""
+SHORT_DESCRIPTION = "ETL: Raw Ecology API -> Minio S3"
+
+def load_ecology_data_to_s3(**context):
+    start_date, end_date = get_data_interval_dates(**context)
+    logging.info(f"🚀 Start loading data for period: {start_date} to {end_date}")
+
+    con = duckdb.connect()
+    try:
+        con.sql("INSTALL httpfs; LOAD httpfs;")
+        con.sql("SET s3_url_style = 'path';")
+        con.sql(f"SET s3_endpoint = '{MINIO_ENDPOINT}';")
+        con.sql(f"SET s3_access_key_id = '{MINIO_ACCESS_KEY}';")
+        con.sql(f"SET s3_secret_access_key = '{MINIO_SECRET_KEY}';")
+        con.sql("SET s3_use_ssl = FALSE;")
+
+        api_url = (
+            f"https://air-quality-api.open-meteo.com/v1/air-quality"
+            f"?latitude=55.75&longitude=37.61"
+            f"&start_date={start_date}&end_date={start_date}"
+            f"&hourly=pm10,pm2_5,nitrogen_dioxide"
+            f"&timezone=Europe%2FMoscow"
+        )
+
+        query = f"""
+        COPY
+        (
+            SELECT
+                unnest(hourly.time)             AS time,
+                unnest(hourly.pm10)             AS pm10,
+                unnest(hourly.pm2_5)            AS pm2_5,
+                unnest(hourly.nitrogen_dioxide) AS nitrogen_dioxide
+            FROM read_json_auto('{api_url}')
+        )
+        TO 's3://prod/{LAYER}/{SOURCE}/{start_date}/data.parquet'
+        (FORMAT PARQUET, COMPRESSION GZIP);
+        """
+        con.sql(query)
+        logging.info(f"✅ Successfully saved data to S3 for date: {start_date}")
+    except Exception as e:
+        logging.error(f"❌ Error during data loading: {e}")
+        raise e
+    finally:
+        con.close()
+
+with DAG(
+    dag_id=DAG_ID,
+    schedule_interval="@daily",
+    default_args=args,
+    tags=["ecology", "s3", "raw"],
+    description=SHORT_DESCRIPTION,
+    concurrency=1,
+    max_active_tasks=1,
+    max_active_runs=1,
+) as dag:
+    dag.doc_md = LONG_DESCRIPTION
+
+    start = EmptyOperator(task_id="start")
+    extract_load = PythonOperator(
+        task_id="extract_and_load_to_s3",
+        python_callable=load_ecology_data_to_s3,
+    )
+    end = EmptyOperator(task_id="end")
+
+    start >> extract_load >> ends3 to pg
+import logging
+import duckdb
+import pendulum
+from airflow import DAG
+from airflow.operators.empty import EmptyOperator
+from airflow.operators.python import PythonOperator
+from airflow.sensors.external_task import ExternalTaskSensor
+
+from utils.dates import get_data_interval_dates
+from utils.dag_config import make_args, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, RAW_LAYER, PG_PASSWORD
+
+DAG_ID = "ecology_raw_s3_to_pg"
+
+LAYER = RAW_LAYER
+SOURCE = "air_quality"
+SCHEMA = "ods"
+TARGET_TABLE = "fct_air_quality"
+
+LONG_DESCRIPTION = """
+# ETL: Raw S3 -> ODS PostgreSQL
+Берёт сырые parquet-файлы из Minio S3 (слой raw) 
+и перекладывает их в PostgreSQL DWH (слой ODS).
+Используется DuckDB как ETL-движок.
+"""
+SHORT_DESCRIPTION = "ETL: Raw S3 (parquet) -> ODS PostgreSQL"
+
+args = make_args(pendulum.datetime(2026, 8, 15, tz="Europe/Moscow"))
+
+
+def get_and_transfer_raw_data_to_ods_pg(**context):
+    start_date, end_date = get_data_interval_dates(**context)
+    logging.info(f"💻 Start load for dates: {start_date} to {end_date}")
+
+    con = duckdb.connect()
+    try:
+        con.sql(
+            f"""
+            SET TIMEZONE='UTC';
+            INSTALL httpfs;
+            LOAD httpfs;
+            SET s3_url_style = 'path';
+            SET s3_endpoint = 'minio:9000';
+            SET s3_access_key_id = '{MINIO_ACCESS_KEY}';
+            SET s3_secret_access_key = '{MINIO_SECRET_KEY}';
+            SET s3_use_ssl = FALSE;
+
+            CREATE OR REPLACE SECRET dwh_postgres (
+                TYPE postgres,
+                HOST 'postgres_dwh',
+                PORT 5432,
+                DATABASE 'dwh',
+                USER 'postgres',
+                PASSWORD '{PG_PASSWORD}'
+            );
+
+            ATTACH '' AS dwh_postgres_db (TYPE postgres, SECRET dwh_postgres);
+
+            CREATE SCHEMA IF NOT EXISTS dwh_postgres_db.{SCHEMA};
+
+            CREATE TABLE IF NOT EXISTS dwh_postgres_db.{SCHEMA}.{TARGET_TABLE} (
+                time TIMESTAMP,
+                pm10 DOUBLE PRECISION,
+                pm2_5 DOUBLE PRECISION,
+                nitrogen_dioxide DOUBLE PRECISION
+            );
+
+            DELETE FROM dwh_postgres_db.{SCHEMA}.{TARGET_TABLE}
+            WHERE time >= '{start_date} 00:00:00'::TIMESTAMP 
+                AND time < '{end_date} 00:00:00'::TIMESTAMP;
+
+            INSERT INTO dwh_postgres_db.{SCHEMA}.{TARGET_TABLE}
+            (
+                time,
+                pm10,
+                pm2_5,
+                nitrogen_dioxide
+            )
+            SELECT
+                time::TIMESTAMP,
+                pm10::DOUBLE,
+                pm2_5::DOUBLE,
+                nitrogen_dioxide::DOUBLE
+            FROM read_parquet('s3://prod/{LAYER}/{SOURCE}/{start_date}/data.parquet');
+            """
+        )
+        logging.info(f"✅ Successfully loaded data to Postgres for date: {start_date}")
+
+    except Exception as e:
+        logging.error(f"❌ Error during data transfer: {e}")
+        raise e
+    finally:
+        con.close()
+
+
+with DAG(
+    dag_id=DAG_ID,
+    schedule_interval="@daily",
+    default_args=args,
+    tags=["ecology", "s3", "ods", "pg"],
+    description=SHORT_DESCRIPTION,
+    concurrency=1,
+    max_active_tasks=1,
+    max_active_runs=1,
+) as dag:
+    dag.doc_md = LONG_DESCRIPTION
+
+    start = EmptyOperator(task_id="start")
+
+    sensor_on_raw_layer = ExternalTaskSensor(
+        task_id="sensor_on_raw_layer",
+        external_dag_id="ecology_raw_api_to_s3",
+        allowed_states=["success"],
+        mode="reschedule",
+        timeout=86400,
+        poke_interval=60,
+    )
+
+    transfer_to_ods = PythonOperator(
+        task_id="get_and_transfer_raw_data_to_ods_pg",
+        python_callable=get_and_transfer_raw_data_to_ods_pg,
+    )
+
+    end = EmptyOperator(task_id="end")
+
+    start >> sensor_on_raw_layer >> transfer_to_ods >> endvitr
+import pendulum
+from airflow import DAG
+from airflow.operators.empty import EmptyOperator
+from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
+from airflow.sensors.external_task import ExternalTaskSensor
+
+from utils.dag_config import make_args
+
+DAG_ID = "dm_air_quality_daily"
+
+SCHEMA = "dm"
+TARGET_TABLE = "air_quality_daily"
+ODS_TABLE = "ods.fct_air_quality"
+
+PG_CONNECT = "postgres_dwh"
+
+LONG_DESCRIPTION = """
+# Витрина: Ежедневные агрегаты качества воздуха
+Считает средние и максимальные значения PM10, PM2.5 и NO2 за сутки 
+на основе данных из ODS слоя.
+"""
+SHORT_DESCRIPTION = "DM: Daily Air Quality Aggregates"
+
+args = make_args(pendulum.datetime(2026, 8, 15, tz="Europe/Moscow"))
+
+with DAG(
+    dag_id=DAG_ID,
+    schedule_interval="@daily",
+    default_args=args,
+    tags=["dm", "pg", "ecology"],
+    description=SHORT_DESCRIPTION,
+    concurrency=1,
+    max_active_tasks=1,
+    max_active_runs=1,
+) as dag:
+    dag.doc_md = LONG_DESCRIPTION
+
+    start = EmptyOperator(task_id="start")
+
+    sensor_on_ods_layer = ExternalTaskSensor(
+        task_id="sensor_on_ods_layer",
+        external_dag_id="ecology_raw_s3_to_pg",
+        allowed_states=["success"],
+        mode="reschedule",
+        timeout=86400,
+        poke_interval=60,
+    )
+
+    drop_stg_table_before = SQLExecuteQueryOperator(
+        task_id="drop_stg_table_before",
+        conn_id=PG_CONNECT,
+        autocommit=True,
+        sql=f"""
+        DROP TABLE IF EXISTS stg."tmp_{TARGET_TABLE}_{{{{ data_interval_start.format('YYYY-MM-DD') }}}}";
+        """,
+    )
+
+    create_stg_table = SQLExecuteQueryOperator(
+        task_id="create_stg_table",
+        conn_id=PG_CONNECT,
+        autocommit=True,
+        sql=f"""
+        CREATE TABLE stg."tmp_{TARGET_TABLE}_{{{{ data_interval_start.format('YYYY-MM-DD') }}}}" AS
+        SELECT
+            time::date AS date,
+            ROUND(AVG(pm10)::numeric, 2) AS avg_pm10,
+            MAX(pm10) AS max_pm10,
+            ROUND(AVG(pm2_5)::numeric, 2) AS avg_pm2_5,
+            MAX(pm2_5) AS max_pm2_5,
+            ROUND(AVG(nitrogen_dioxide)::numeric, 2) AS avg_no2,
+            MAX(nitrogen_dioxide) AS max_no2
+        FROM
+            {ODS_TABLE}
+        WHERE
+            time::date = '{{{{ data_interval_start.format('YYYY-MM-DD') }}}}'
+        GROUP BY 1;
+        """,
+    )
+
+    delete_from_target_table = SQLExecuteQueryOperator(
+        task_id="delete_from_target_table",
+        conn_id=PG_CONNECT,
+        autocommit=True,
+        sql=f"""
+        DELETE FROM {SCHEMA}.{TARGET_TABLE}
+        WHERE date IN (
+            SELECT date FROM stg."tmp_{TARGET_TABLE}_{{{{ data_interval_start.format('YYYY-MM-DD') }}}}"
+        );
+        """,
+    )
+
+    insert_into_target_table = SQLExecuteQueryOperator(
+        task_id="insert_into_target_table",
+        conn_id=PG_CONNECT,
+        autocommit=True,
+        sql=f"""
+        INSERT INTO {SCHEMA}.{TARGET_TABLE}
+        SELECT * FROM stg."tmp_{TARGET_TABLE}_{{{{ data_interval_start.format('YYYY-MM-DD') }}}}";
+        """,
+    )
+
+    drop_stg_table_after = SQLExecuteQueryOperator(
+        task_id="drop_stg_table_after",
+        conn_id=PG_CONNECT,
+        autocommit=True,
+        sql=f"""
+        DROP TABLE IF EXISTS stg."tmp_{TARGET_TABLE}_{{{{ data_interval_start.format('YYYY-MM-DD') }}}}";
+        """,
+    )
+
+    end = EmptyOperator(task_id="end")
+
+    (
+        start
+        >> sensor_on_ods_layer
+        >> drop_stg_table_before
+        >> create_stg_table
+        >> delete_from_target_table
+        >> insert_into_target_table
+        >> drop_stg_table_after
+        >> end
+    )
