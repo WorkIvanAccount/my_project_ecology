@@ -116,7 +116,7 @@ dm_air_quality_daily
 
 ### Airflow UI
 
-![Airflow DAGs](screenshots/airflow_dags.png)
+![Airflow DAGs](../screenshots/airflow_dags.png)
 
 ---
 
@@ -124,7 +124,7 @@ dm_air_quality_daily
 
 Raw-слой хранится в MinIO как S3-compatible object storage.
 
-![MinIO Raw Layer](screenshots/minio_raw.png)
+![MinIO Raw Layer](../screenshots/minio_raw.png)
 
 ---
 
@@ -137,7 +137,7 @@ ods.fct_air_quality
 dm.air_quality_daily
 ```
 
-![PostgreSQL DWH](screenshots/postgres_dwh.png)
+![PostgreSQL DWH](../screenshots/postgres_dwh.png)
 
 ---
 
