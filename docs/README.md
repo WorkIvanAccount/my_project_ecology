@@ -23,39 +23,20 @@
 
 ## Архитектура
 
-```text
-                  ┌──────────────────┐
-                  │  Air Quality API │
-                  └────────┬─────────┘
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │   Airflow   │
-                    └──────┬──────┘
-                           │
-                           ▼
-                  ┌─────────────────┐
-                  │   MinIO / S3    │
-                  │  RAW / Parquet  │
-                  └────────┬────────┘
-                           │
-                           ▼
-                     ┌───────────┐
-                     │  DuckDB   │
-                     └─────┬─────┘
-                           │
-                           ▼
-                ┌─────────────────────┐
-                │    PostgreSQL DWH   │
-                │                     │
-                │  ODS → STG → DM     │
-                └──────────┬──────────┘
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │   Metabase  │
-                    │ BI Dashboard│
-                    └─────────────┘
+```mermaid
+flowchart TD
+    API[Air Quality API]
+    AF[Airflow]
+    S3[MinIO / S3<br/>RAW / Parquet]
+    D[DuckDB]
+    PG[PostgreSQL DWH<br/>ODS → STG → DM]
+    MB[Metabase<br/>BI Dashboard]
+
+    API --> AF
+    AF --> S3
+    S3 --> D
+    D --> PG
+    PG --> MB
 ````
 
 ### Как проходит данные
@@ -277,30 +258,6 @@ PostgreSQL → localhost:5432
 
 В результате получен полный локальный pipeline:
 
-```text
-External API
-     ↓
-Airflow
-     ↓
-MinIO / S3
-     ↓
-DuckDB
-     ↓
-PostgreSQL DWH
-     ↓
-Data Mart
-     ↓
-Metabase
-```
-
-Проект демонстрирует практический опыт работы с ingestion, orchestration, object storage, DWH, SQL transformations и BI.
-
-````
-
-Да, картинки именно так и вставляются: `![название](screenshots/airflow_dags.png)`. Нужно только создать в репозитории папку `screenshots/` и положить туда соответствующие файлы. GitHub сам их отобразит.
-
-И ещё одно: я бы **оставил архитектурную схему прямо в README через Mermaid**, а не картинкой. GitHub умеет её рендерить:
-
 ```mermaid
 flowchart LR
     API[Air Quality API] --> AF[Airflow]
@@ -311,4 +268,5 @@ flowchart LR
     DM --> MB[Metabase]
 ````
 
-Так её потом проще менять.
+
+Проект демонстрирует практический опыт работы с ingestion, orchestration, object storage, DWH, SQL transformations и BI.
